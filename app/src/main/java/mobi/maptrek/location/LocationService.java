@@ -1,6 +1,7 @@
 package mobi.maptrek.location;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -93,6 +94,7 @@ public class LocationService extends BaseLocationService implements LocationList
     private boolean mForeground = false;
     private String mErrorMsg = "";
     private long mErrorTime = 0;
+    private PendingIntent mAlarmIntent = null;
 
     private Location mLastWrittenLocation = null;
     private float mDistanceTracked = 0f;
@@ -171,9 +173,25 @@ public class LocationService extends BaseLocationService implements LocationList
             updateDistanceTracked();
             startForeground(NOTIFICATION_ID, getNotification());
         }
+        if (action.equals(INTERMITTENT_TRACK)) {
+            AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            if (alarmManager != null) {
+                Intent myIntent = new Intent(INTERMITTENT_ALARM, null, this, LocationService.class);
+                mAlarmIntent = PendingIntent.getService(this, 0, myIntent, PendingIntent.FLAG_UPDATE_CURRENT);
+
+                long interval = 30 * 1000;
+                long trigger = System.currentTimeMillis() + interval;
+                alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, trigger, interval, mAlarmIntent);
+                disconnect();
+            }
+        }
         if (action.equals(DISABLE_BACKGROUND_TRACK)) {
             mForeground = false;
             stopForeground(true);
+        }
+        if (action.equals(INTERMITTENT_ALARM)) {
+            logger.error("alarm");
+            connect();
         }
         updateNotification();
 
@@ -258,6 +276,9 @@ public class LocationService extends BaseLocationService implements LocationList
     private Notification getNotification() {
         int titleId = R.string.notifTracking;
         int ntfId = R.mipmap.ic_stat_tracking;
+        if (!mLocationsEnabled) {
+            titleId = R.string.notifIntermittentTracking;
+        }
         if (mGpsStatus != LocationService.GPS_OK) {
             titleId = R.string.notifLocationWaiting;
             ntfId = R.mipmap.ic_stat_waiting;
@@ -308,6 +329,13 @@ public class LocationService extends BaseLocationService implements LocationList
         builder.setContentIntent(piResult);
         builder.setContentTitle(getText(titleId));
         builder.setStyle(new Notification.BigTextStyle().setBigContentTitle(getText(titleId)).bigText(bigText));
+        if (mLocationsEnabled) {
+            Intent iRecord = new Intent(INTERMITTENT_TRACK, null, getApplicationContext(), LocationService.class);
+            PendingIntent piRecord = PendingIntent.getService(this, 0, iRecord, PendingIntent.FLAG_CANCEL_CURRENT);
+            Icon recordIcon = Icon.createWithResource(this, R.drawable.ic_intermittent_record);
+            Notification.Action actionRecord = new Notification.Action.Builder(recordIcon, getString(R.string.actionIntermittentRecord), piRecord).build();
+            builder.addAction(actionRecord);
+        }
         builder.addAction(actionPause);
         builder.addAction(actionStop);
         builder.setGroup("maptrek");
@@ -596,11 +624,14 @@ public class LocationService extends BaseLocationService implements LocationList
             time = loc.getTime() - mLastWrittenLocation.getTime();
         }
         if (mLastWrittenLocation == null || !continuous || time > mMaxTime || distance > mMinDistance && time > mMinTime) {
-            writeTrackPoint(loc, distance, continuous);
+            writeTrackPoint(loc, distance, mAlarmIntent != null || continuous);
         }
     }
 
     private void tearTrack() {
+        // do not tear track if it is recorded in intermittent mode
+        if (mAlarmIntent != null)
+            return;
         if (mLastKnownLocation != mLastWrittenLocation && !"unknown".equals(mLastKnownLocation.getProvider())) {
             float distance = mLastWrittenLocation != null ? mLastKnownLocation.distanceTo(mLastWrittenLocation) : 0f;
             writeTrackPoint(mLastKnownLocation, distance, mContinuous);
@@ -641,6 +672,10 @@ public class LocationService extends BaseLocationService implements LocationList
             }
         }
         mLocationRemoteCallbacks.finishBroadcast();
+
+        if (mAlarmIntent != null) {
+            disconnect();
+        }
     }
 
     private void updateGpsStatus() {

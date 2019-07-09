@@ -30,6 +30,11 @@ public abstract class BaseLocationService extends Service {
      */
     public static final String DISABLE_BACKGROUND_TRACK = "mobi.maptrek.location.disableBackgroundTrack";
     /**
+     * Service command to switch to periodic track recoding.
+     */
+    public static final String INTERMITTENT_TRACK = "mobi.maptrek.location.intermittentTrack";
+    public static final String INTERMITTENT_ALARM = "mobi.maptrek.location.intermittentAlarm";
+    /**
      * Broadcast sent when track is about to be saved (or not)
      */
     public static final String BROADCAST_TRACK_SAVE = "mobi.maptrek.location.TrackSave";
