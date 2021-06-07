@@ -1,5 +1,5 @@
 /*
- * Copyright 2019 Andrey Novikov
+ * Copyright 2021 Andrey Novikov
  *
  * This program is free software: you can redistribute it and/or modify it under the
  * terms of the GNU Lesser General Public License as published by the Free Software
@@ -24,6 +24,7 @@ import android.animation.ArgbEvaluator;
 import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Fragment;
 import android.app.FragmentManager;
@@ -40,6 +41,7 @@ import android.content.Loader;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.content.pm.PermissionInfo;
 import android.content.res.Resources;
 import android.graphics.Rect;
 import android.graphics.drawable.ColorDrawable;
@@ -60,6 +62,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import com.google.android.material.snackbar.BaseTransientBottomBar;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
+
+import androidx.appcompat.widget.ContentFrameLayout;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.snackbar.Snackbar;
@@ -112,6 +116,7 @@ import org.oscim.layers.AbstractMapEventLayer;
 import org.oscim.layers.Layer;
 import org.oscim.layers.PathLayer;
 import org.oscim.layers.TileGridLayer;
+import org.oscim.layers.tile.MapTile;
 import org.oscim.layers.tile.bitmap.BitmapTileLayer;
 import org.oscim.layers.tile.buildings.S3DBLayer;
 import org.oscim.layers.tile.vector.OsmTileLayer;
@@ -252,7 +257,6 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         PopupMenu.OnMenuItemClickListener,
         LoaderManager.LoaderCallbacks<List<FileDataSource>>,
         FragmentManager.OnBackStackChangedListener,
-        MapTrekTileSource.OnDataMissingListener,
         AmenitySetupDialog.AmenitySetupDialogCallback, SafeResultReceiver.Callback {
     private static final Logger logger = LoggerFactory.getLogger(MainActivity.class);
 
@@ -313,7 +317,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
     private LocationState mSavedLocationState;
     private LocationState mPreviousLocationState;
     private TRACKING_STATE mTrackingState;
-    private MapPosition mMapPosition = new MapPosition();
+    private final MapPosition mMapPosition = new MapPosition();
     private GeoPoint mSelectedPoint;
     private boolean mPositionLocked = false;
     private int mMovingOffset = 0;
@@ -392,7 +396,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
 
     private WaypointBroadcastReceiver mWaypointBroadcastReceiver;
 
-    @SuppressLint({"ShowToast", "RestrictedApi"})
+    @SuppressLint({"ShowToast", "RestrictedApi", "UseCompatLoadingForDrawables"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -593,6 +597,8 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         mMyLocationDrawable = (VectorDrawable) resources.getDrawable(R.drawable.ic_my_location, theme);
         mLocationSearchingDrawable = (VectorDrawable) resources.getDrawable(R.drawable.ic_location_searching, theme);
 
+        Tags.accessibility = Configuration.getAccessibilityBadgesEnabled();
+
         Layers layers = mMap.layers();
         layers.addGroup(MAP_EVENTS);
         layers.addGroup(MAP_BASE);
@@ -603,7 +609,6 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         mBaseLayer = new MapTrekTileLayer(mMap, mNativeTileSource, this);
 
         mMap.setBaseMap(mBaseLayer); // will go to base group
-        mNativeTileSource.setOnDataMissingListener(this);
 
         // setBaseMap does not operate with layer groups so we add remaining groups later
         layers.addGroup(MAP_MAPS);
@@ -1180,7 +1185,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
     }
 
     @Override
-    public void onRestoreInstanceState(Bundle savedInstanceState) {
+    public void onRestoreInstanceState(@NonNull Bundle savedInstanceState) {
         logger.debug("onRestoreInstanceState()");
         super.onRestoreInstanceState(savedInstanceState);
         mSavedLocationState = (LocationState) savedInstanceState.getSerializable("savedLocationState");
@@ -1199,325 +1204,311 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
     }
 
     @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent resultData) {
+        super.onActivityResult(requestCode, resultCode, resultData);
+        if (requestCode == 1 && resultCode == Activity.RESULT_OK) {
+            if (resultData != null) {
+                Uri uri = resultData.getData();
+                Intent intent = new Intent(Intent.ACTION_SEND, uri, this, DataImportActivity.class);
+                startActivity(intent);
+            }
+        }
+    }
+
+    @Override
     public boolean onMenuItemClick(MenuItem item) {
-        switch (item.getItemId()) {
-            case R.id.actionNightMode: {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionNightMode);
-                builder.setItems(R.array.night_mode_array, (dialog, which) -> {
-                    Configuration.setNightModeState(which);
-                    AppCompatDelegate.setDefaultNightMode(which);
-                    getDelegate().setLocalNightMode(which);
-                    getDelegate().applyDayNight();
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.actionStyle: {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionStyle);
-                builder.setItems(R.array.mapStyles, (dialog, which) -> {
-                    Configuration.setMapStyle(which);
-                    // With rule categories it became a long lasting operation
-                    // so it has to be run in background
-                    mBackgroundHandler.post(this::setMapTheme);
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.actionMapScale: {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionMapScale);
-                builder.setItems(R.array.size_array, (dialog, which) -> {
-                    Configuration.setMapUserScale(which);
-                    // With rule categories it became a long lasting operation
-                    // so it has to be run in background
-                    mBackgroundHandler.post(this::setMapTheme);
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.actionFontSize: {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionFontSize);
-                builder.setItems(R.array.size_array, (dialog, which) -> {
-                    Configuration.setMapFontSize(which);
-                    // With rule categories it became a long lasting operation
-                    // so it has to be run in background
-                    mBackgroundHandler.post(this::setMapTheme);
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.actionLanguage: {
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionLanguage);
-                builder.setItems(R.array.language_array, (dialog, which) -> {
-                    String[] languageCodes = getResources().getStringArray(R.array.language_code_array);
-                    String language = languageCodes[which];
-                    if ("none".equals(language)) {
-                        mLabelTileLoaderHook.setPreferredLanguage(null);
-                    } else {
-                        mLabelTileLoaderHook.setPreferredLanguage(language);
-                    }
-                    mMap.clearMap();
-                    Configuration.setLanguage(language);
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.actionAmenityZooms: {
-                AmenitySetupDialog.Builder builder = new AmenitySetupDialog.Builder();
-                AmenitySetupDialog dialog = builder.setCallback(this).create();
-                dialog.show(mFragmentManager, "amenitySetup");
-                return true;
-            }
-            case R.id.actionOtherFeatures: {
-                PanelMenuFragment fragment = (PanelMenuFragment) Fragment.instantiate(this, PanelMenuFragment.class.getName());
-                fragment.setMenu(R.menu.menu_map_features, menu -> {
-                    menu.findItem(R.id.action3dBuildings).setChecked(mBuildingsLayerEnabled);
-                    menu.findItem(R.id.actionHillshades).setChecked(Configuration.getHillshadesEnabled());
-                    menu.findItem(R.id.actionContours).setChecked(Configuration.getContoursEnabled());
-                    menu.findItem(R.id.actionGrid).setChecked(mMap.layers().contains(mGridLayer));
-                });
-                showExtendPanel(PANEL_STATE.MAPS, "mapFeaturesMenu", fragment);
-                return true;
-            }
-            case R.id.actionActivity: {
-                int activity = Configuration.getActivity();
-                AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                builder.setTitle(R.string.actionActivity);
-                builder.setSingleChoiceItems(R.array.activities, activity, (dialog, which) -> {
-                    dialog.dismiss();
-                    Configuration.setActivity(which);
-                    // With rule categories it became a long lasting operation
-                    // so it has to be run in background
-                    mBackgroundHandler.post(this::setMapTheme);
-                });
-                AlertDialog dialog = builder.create();
-                dialog.show();
-                return true;
-            }
-            case R.id.action3dBuildings: {
-                mBuildingsLayerEnabled = item.isChecked();
-                if (mBuildingsLayerEnabled) {
-                    mBuildingsLayer = new S3DBLayer(mMap, mBaseLayer);
-                    mMap.layers().add(mBuildingsLayer, MAP_3D);
-                    // Let buildings be re-fetched from map layer
-                    mMap.clearMap();
+        int action = item.getItemId();
+        if (action == R.id.actionNightMode) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionNightMode);
+            builder.setItems(R.array.night_mode_array, (dialog, which) -> {
+                Configuration.setNightModeState(which);
+                AppCompatDelegate.setDefaultNightMode(which);
+                getDelegate().setLocalNightMode(which);
+                getDelegate().applyDayNight();
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.actionStyle) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionStyle);
+            builder.setItems(R.array.mapStyles, (dialog, which) -> {
+                Configuration.setMapStyle(which);
+                // With rule categories it became a long lasting operation
+                // so it has to be run in background
+                mBackgroundHandler.post(this::setMapTheme);
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.actionMapScale) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionMapScale);
+            builder.setItems(R.array.size_array, (dialog, which) -> {
+                Configuration.setMapUserScale(which);
+                // With rule categories it became a long lasting operation
+                // so it has to be run in background
+                mBackgroundHandler.post(this::setMapTheme);
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.actionFontSize) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionFontSize);
+            builder.setItems(R.array.size_array, (dialog, which) -> {
+                Configuration.setMapFontSize(which);
+                // With rule categories it became a long lasting operation
+                // so it has to be run in background
+                mBackgroundHandler.post(this::setMapTheme);
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.actionLanguage) {
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionLanguage);
+            builder.setItems(R.array.language_array, (dialog, which) -> {
+                String[] languageCodes = getResources().getStringArray(R.array.language_code_array);
+                String language = languageCodes[which];
+                if ("none".equals(language)) {
+                    mLabelTileLoaderHook.setPreferredLanguage(null);
                 } else {
-                    mMap.layers().remove(mBuildingsLayer);
-                    mBuildingsLayer = null;
+                    mLabelTileLoaderHook.setPreferredLanguage(language);
                 }
-                Configuration.setBuildingsLayerEnabled(mBuildingsLayerEnabled);
-                mMap.updateMap(true);
-                return true;
-            }
-            case R.id.actionHillshades: {
-                // layer is managed in event subscription as it can be configured in other places
-                Configuration.setHillshadesEnabled(item.isChecked());
-                return true;
-            }
-            case R.id.actionContours: {
-                mNativeTileSource.setContoursEnabled(item.isChecked());
                 mMap.clearMap();
-                Configuration.setContoursEnabled(item.isChecked());
-                return true;
+                Configuration.setLanguage(language);
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.actionAmenityZooms) {
+            AmenitySetupDialog.Builder builder = new AmenitySetupDialog.Builder();
+            AmenitySetupDialog dialog = builder.setCallback(this).create();
+            dialog.show(mFragmentManager, "amenitySetup");
+            return true;
+        } else if (action == R.id.actionOtherFeatures) {
+            PanelMenuFragment fragment = (PanelMenuFragment) Fragment.instantiate(this, PanelMenuFragment.class.getName());
+            fragment.setMenu(R.menu.menu_map_features, menu -> {
+                menu.findItem(R.id.action3dBuildings).setChecked(mBuildingsLayerEnabled);
+                menu.findItem(R.id.actionHillshades).setChecked(Configuration.getHillshadesEnabled());
+                menu.findItem(R.id.actionContours).setChecked(Configuration.getContoursEnabled());
+                menu.findItem(R.id.actionGrid).setChecked(mMap.layers().contains(mGridLayer));
+            });
+            showExtendPanel(PANEL_STATE.MAPS, "mapFeaturesMenu", fragment);
+            return true;
+        } else if (action == R.id.actionActivity) {
+            int activity = Configuration.getActivity();
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle(R.string.actionActivity);
+            builder.setSingleChoiceItems(R.array.activities, activity, (dialog, which) -> {
+                dialog.dismiss();
+                Configuration.setActivity(which);
+                // With rule categories it became a long lasting operation
+                // so it has to be run in background
+                mBackgroundHandler.post(this::setMapTheme);
+            });
+            AlertDialog dialog = builder.create();
+            dialog.show();
+            return true;
+        } else if (action == R.id.action3dBuildings) {
+            mBuildingsLayerEnabled = item.isChecked();
+            if (mBuildingsLayerEnabled) {
+                mBuildingsLayer = new S3DBLayer(mMap, mBaseLayer);
+                mMap.layers().add(mBuildingsLayer, MAP_3D);
+                // Let buildings be re-fetched from map layer
+                mMap.clearMap();
+            } else {
+                mMap.layers().remove(mBuildingsLayer);
+                mBuildingsLayer = null;
             }
-            case R.id.actionGrid: {
-                if (item.isChecked()) {
-                    mMap.layers().add(mGridLayer, MAP_OVERLAYS);
-                } else {
-                    mMap.layers().remove(mGridLayer);
+            Configuration.setBuildingsLayerEnabled(mBuildingsLayerEnabled);
+            mMap.updateMap(true);
+            return true;
+        } else if (action == R.id.actionHillshades) {// layer is managed in event subscription as it can be configured in other places
+            Configuration.setHillshadesEnabled(item.isChecked());
+            return true;
+        } else if (action == R.id.actionContours) {
+            mNativeTileSource.setContoursEnabled(item.isChecked());
+            mMap.clearMap();
+            Configuration.setContoursEnabled(item.isChecked());
+            return true;
+        } else if (action == R.id.actionGrid) {
+            if (item.isChecked()) {
+                mMap.layers().add(mGridLayer, MAP_OVERLAYS);
+            } else {
+                mMap.layers().remove(mGridLayer);
+            }
+            Configuration.setGridLayerEnabled(item.isChecked());
+            mMap.updateMap(true);
+            return true;
+        } else if (action == R.id.actionAutoTilt) {
+            mMap.getMapPosition(mMapPosition);
+            if (item.isChecked()) {
+                Configuration.setAutoTilt(65f);
+                mAutoTilt = 65f;
+            } else {
+                Configuration.setAutoTilt(-1f);
+                mAutoTilt = -1f;
+                if (mAutoTiltSet) {
+                    mMapPosition.setTilt(0f);
+                    mMap.animator().animateTo(MAP_BEARING_ANIMATION_DURATION, mMapPosition);
+                    mAutoTiltSet = false;
                 }
-                Configuration.setGridLayerEnabled(item.isChecked());
-                mMap.updateMap(true);
-                return true;
             }
-            case R.id.actionAutoTilt: {
-                mMap.getMapPosition(mMapPosition);
-                if (item.isChecked()) {
-                    Configuration.setAutoTilt(65f);
-                    mAutoTilt = 65f;
-                } else {
-                    Configuration.setAutoTilt(-1f);
-                    mAutoTilt = -1f;
-                    if (mAutoTiltSet) {
-                        mMapPosition.setTilt(0f);
-                        mMap.animator().animateTo(MAP_BEARING_ANIMATION_DURATION, mMapPosition);
-                        mAutoTiltSet = false;
-                    }
-                }
-                return true;
+            return true;
+        } else if (action == R.id.actionOverviewRoute) {
+            if (mLocationState == LocationState.NORTH || mLocationState == LocationState.TRACK) {
+                mLocationState = LocationState.ENABLED;
+                updateLocationDrawable();
             }
-            case R.id.actionOverviewRoute: {
-                if (mLocationState == LocationState.NORTH || mLocationState == LocationState.TRACK) {
-                    mLocationState = LocationState.ENABLED;
-                    updateLocationDrawable();
-                }
-                BoundingBox box = new BoundingBox();
-                mMap.getMapPosition(mMapPosition);
-                box.extend(mMapPosition.getLatitude(), mMapPosition.getLongitude());
-                MapObject mapObject = mNavigationService.getWaypoint();
-                box.extend(mapObject.coordinates.getLatitude(), mapObject.coordinates.getLongitude());
-                box.extendBy(0.05);
-                mMap.animator().animateTo(box);
-                return true;
+            BoundingBox box = new BoundingBox();
+            mMap.getMapPosition(mMapPosition);
+            box.extend(mMapPosition.getLatitude(), mMapPosition.getLongitude());
+            MapObject mapObject = mNavigationService.getWaypoint();
+            box.extend(mapObject.coordinates.getLatitude(), mapObject.coordinates.getLongitude());
+            box.extendBy(0.05);
+            mMap.animator().animateTo(box);
+            return true;
+        } else if (action == R.id.actionStopNavigation) {
+            stopNavigation();
+            return true;
+        } else if (action == R.id.actionManageMaps) {
+            startMapSelection(true);
+            return true;
+        } else if (action == R.id.actionImport) {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            startActivityForResult(intent, 1);
+            return true;
+        } else if (action == R.id.actionHideSystemUI) {
+            if (Configuration.getHideSystemUI())
+                showSystemUI();
+            else
+                hideSystemUI();
+            return true;
+        } else if (action == R.id.actionRuler) {
+            Ruler fragment = (Ruler) Fragment.instantiate(this, Ruler.class.getName());
+            FragmentTransaction ft = mFragmentManager.beginTransaction();
+            ft.replace(R.id.contentPanel, fragment, "ruler");
+            ft.addToBackStack("ruler");
+            ft.commit();
+            return true;
+        } else if (action == R.id.actionAddGauge) {
+            mViews.gaugePanel.onLongClick(mViews.gaugePanel);
+            return true;
+        } else if (action == R.id.actionRate) {
+            Snackbar snackbar = Snackbar
+                    .make(mViews.coordinatorLayout, R.string.msgRateApplication, Snackbar.LENGTH_INDEFINITE)
+                    .setAction(R.string.iamin, view -> {
+                        String packageName = getPackageName();
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName)));
+                        } catch (ActivityNotFoundException ignore) {
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + packageName)));
+                        }
+                    }).addCallback(new BaseTransientBottomBar.BaseCallback<Snackbar>() {
+                        @Override
+                        public void onDismissed(Snackbar transientBottomBar, int event) {
+                            Configuration.setRatingActionPerformed();
+                        }
+                    });
+            TextView snackbarTextView = snackbar.getView().findViewById(com.google.android.material.R.id.snackbar_text);
+            snackbarTextView.setMaxLines(99);
+            snackbar.show();
+            return true;
+        } else if (action == R.id.actionLegend) {
+            Fragment fragment = Fragment.instantiate(this, Legend.class.getName());
+            showExtendPanel(PANEL_STATE.MAPS, "legend", fragment);
+            return true;
+        } else if (action == R.id.actionSettings) {
+            Bundle args = new Bundle(1);
+            args.putBoolean(Settings.ARG_HILLSHADES_AVAILABLE, mNativeMapIndex.hasHillshades());
+            Fragment fragment = Fragment.instantiate(this, Settings.class.getName(), args);
+            fragment.setEnterTransition(new Slide(mSlideGravity));
+            fragment.setReturnTransition(new Slide(mSlideGravity));
+            FragmentTransaction ft = mFragmentManager.beginTransaction();
+            ft.replace(R.id.contentPanel, fragment, "settings");
+            ft.addToBackStack("settings");
+            ft.commit();
+            return true;
+        } else if (action == R.id.actionSearch) {
+            Bundle args = new Bundle(2);
+            if (mLocationState != LocationState.DISABLED && mLocationService != null) {
+                Location location = mLocationService.getLocation();
+                args.putDouble(DataList.ARG_LATITUDE, location.getLatitude());
+                args.putDouble(DataList.ARG_LONGITUDE, location.getLongitude());
+            } else {
+                MapPosition position = mMap.getMapPosition();
+                args.putDouble(DataList.ARG_LATITUDE, position.getLatitude());
+                args.putDouble(DataList.ARG_LONGITUDE, position.getLongitude());
             }
-            case R.id.actionStopNavigation: {
-                stopNavigation();
-                return true;
+            if (mFragmentManager.getBackStackEntryCount() > 0) {
+                popAll();
             }
-            case R.id.actionManageMaps: {
-                startMapSelection(true);
-                return true;
+            Fragment fragment = Fragment.instantiate(this, TextSearchFragment.class.getName(), args);
+            showExtendPanel(PANEL_STATE.MORE, "search", fragment);
+            return true;
+        } else if (action == R.id.actionAbout) {
+            Fragment fragment = Fragment.instantiate(this, About.class.getName());
+            fragment.setEnterTransition(new Slide(mSlideGravity));
+            fragment.setReturnTransition(new Slide(mSlideGravity));
+            FragmentTransaction ft = mFragmentManager.beginTransaction();
+            ft.replace(R.id.contentPanel, fragment, "about");
+            ft.addToBackStack("about");
+            ft.commit();
+            return true;
+        } else if (action == R.id.actionShareCoordinates) {
+            removeMarker();
+            shareLocation(mSelectedPoint, null);
+            return true;
+        } else if (action == R.id.actionAddWaypointHere) {
+            removeMarker();
+            String name = getString(R.string.place_name, Configuration.getPointsCounter());
+            onWaypointCreate(mSelectedPoint, name, false, true);
+            return true;
+        } else if (action == R.id.actionNavigateHere) {
+            removeMarker();
+            MapObject mapObject = new MapObject(mSelectedPoint.getLatitude(), mSelectedPoint.getLongitude());
+            mapObject.name = getString(R.string.selectedLocation);
+            startNavigation(mapObject);
+            return true;
+        } else if (action == R.id.actionFindRouteHere) {
+            removeMarker();
+            Intent routeIntent = new Intent(Intent.ACTION_PICK, null, this, GraphHopperService.class);
+            double[] points = new double[]{0.0, 0.0, 0.0, 0.0};
+            if (mLocationState != LocationState.DISABLED && mLocationService != null) {
+                Location location = mLocationService.getLocation();
+                points[0] = location.getLatitude();
+                points[1] = location.getLongitude();
             }
-            case R.id.actionHideSystemUI: {
-                if (Configuration.getHideSystemUI())
-                    showSystemUI();
-                else
-                    hideSystemUI();
+            points[2] = mSelectedPoint.getLatitude();
+            points[3] = mSelectedPoint.getLongitude();
+            routeIntent.putExtra(GraphHopperService.EXTRA_POINTS, points);
+            routeIntent.putExtra(Intent.EXTRA_RESULT_RECEIVER, mResultReceiver.get());
+            startService(routeIntent);
+            return true;
+        } else if (action == R.id.actionRememberScale) {
+            HelperUtils.showTargetedAdvice(this, Configuration.ADVICE_REMEMBER_SCALE, R.string.advice_remember_scale, mViews.popupAnchor, true);
+            removeMarker();
+            mMap.getMapPosition(mMapPosition);
+            Configuration.setRememberedScale((float) mMapPosition.getScale());
+            return true;
+        } else if (action == R.id.actionRememberTilt) {
+            removeMarker();
+            mMap.getMapPosition(mMapPosition);
+            mAutoTilt = mMapPosition.getTilt();
+            Configuration.setAutoTilt(mAutoTilt);
+            mAutoTiltSet = true;
+            mAutoTiltShouldSet = true;
+            return true;
+        } else {
+            Intent intent = item.getIntent();
+            if (intent != null) {
+                startActivity(intent);
                 return true;
-            }
-            case R.id.actionRuler: {
-                Ruler fragment = (Ruler) Fragment.instantiate(this, Ruler.class.getName());
-                FragmentTransaction ft = mFragmentManager.beginTransaction();
-                ft.replace(R.id.contentPanel, fragment, "ruler");
-                ft.addToBackStack("ruler");
-                ft.commit();
-                return true;
-            }
-            case R.id.actionAddGauge: {
-                mViews.gaugePanel.onLongClick(mViews.gaugePanel);
-                return true;
-            }
-            case R.id.actionRate: {
-                Snackbar snackbar = Snackbar
-                        .make(mViews.coordinatorLayout, R.string.msgRateApplication, Snackbar.LENGTH_INDEFINITE)
-                        .setAction(R.string.iamin, view -> {
-                            String packageName = getPackageName();
-                            try {
-                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + packageName)));
-                            } catch (ActivityNotFoundException ignore) {
-                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + packageName)));
-                            }
-                        }).addCallback(new BaseTransientBottomBar.BaseCallback<Snackbar>() {
-                            @Override
-                            public void onDismissed(Snackbar transientBottomBar, int event) {
-                                Configuration.setRatingActionPerformed();
-                            }
-                        });
-                TextView snackbarTextView = snackbar.getView().findViewById(com.google.android.material.R.id.snackbar_text);
-                snackbarTextView.setMaxLines(99);
-                snackbar.show();
-                return true;
-            }
-            case R.id.actionLegend: {
-                Fragment fragment = Fragment.instantiate(this, Legend.class.getName());
-                showExtendPanel(PANEL_STATE.MAPS, "legend", fragment);
-                return true;
-            }
-            case R.id.actionSettings: {
-                Bundle args = new Bundle(1);
-                args.putBoolean(Settings.ARG_HILLSHADES_AVAILABLE, mNativeMapIndex.hasHillshades());
-                Fragment fragment = Fragment.instantiate(this, Settings.class.getName(), args);
-                fragment.setEnterTransition(new Slide(mSlideGravity));
-                fragment.setReturnTransition(new Slide(mSlideGravity));
-                FragmentTransaction ft = mFragmentManager.beginTransaction();
-                ft.replace(R.id.contentPanel, fragment, "settings");
-                ft.addToBackStack("settings");
-                ft.commit();
-                return true;
-            }
-            case R.id.actionSearch: {
-                Bundle args = new Bundle(2);
-                if (mLocationState != LocationState.DISABLED && mLocationService != null) {
-                    Location location = mLocationService.getLocation();
-                    args.putDouble(DataList.ARG_LATITUDE, location.getLatitude());
-                    args.putDouble(DataList.ARG_LONGITUDE, location.getLongitude());
-                } else {
-                    MapPosition position = mMap.getMapPosition();
-                    args.putDouble(DataList.ARG_LATITUDE, position.getLatitude());
-                    args.putDouble(DataList.ARG_LONGITUDE, position.getLongitude());
-                }
-                if (mFragmentManager.getBackStackEntryCount() > 0) {
-                    popAll();
-                }
-                Fragment fragment = Fragment.instantiate(this, TextSearchFragment.class.getName(), args);
-                showExtendPanel(PANEL_STATE.MORE, "search", fragment);
-                return true;
-            }
-            case R.id.actionAbout: {
-                Fragment fragment = Fragment.instantiate(this, About.class.getName());
-                fragment.setEnterTransition(new Slide(mSlideGravity));
-                fragment.setReturnTransition(new Slide(mSlideGravity));
-                FragmentTransaction ft = mFragmentManager.beginTransaction();
-                ft.replace(R.id.contentPanel, fragment, "about");
-                ft.addToBackStack("about");
-                ft.commit();
-                return true;
-            }
-            case R.id.actionShareCoordinates: {
-                removeMarker();
-                shareLocation(mSelectedPoint, null);
-                return true;
-            }
-            case R.id.actionAddWaypointHere: {
-                removeMarker();
-                String name = getString(R.string.place_name, Configuration.getPointsCounter());
-                onWaypointCreate(mSelectedPoint, name, false, true);
-                return true;
-            }
-            case R.id.actionNavigateHere: {
-                removeMarker();
-                MapObject mapObject = new MapObject(mSelectedPoint.getLatitude(), mSelectedPoint.getLongitude());
-                mapObject.name = getString(R.string.selectedLocation);
-                startNavigation(mapObject);
-                return true;
-            }
-            case R.id.actionFindRouteHere: {
-                removeMarker();
-                Intent routeIntent = new Intent(Intent.ACTION_PICK, null, this, GraphHopperService.class);
-                double[] points = new double[] {0.0, 0.0, 0.0, 0.0};
-                if (mLocationState != LocationState.DISABLED && mLocationService != null) {
-                    Location location = mLocationService.getLocation();
-                    points[0] = location.getLatitude();
-                    points[1] = location.getLongitude();
-                }
-                points[2] = mSelectedPoint.getLatitude();
-                points[3] = mSelectedPoint.getLongitude();
-                routeIntent.putExtra(GraphHopperService.EXTRA_POINTS, points);
-                routeIntent.putExtra(Intent.EXTRA_RESULT_RECEIVER, mResultReceiver.get());
-                startService(routeIntent);
-                return true;
-            }
-            case R.id.actionRememberScale: {
-                HelperUtils.showTargetedAdvice(this, Configuration.ADVICE_REMEMBER_SCALE, R.string.advice_remember_scale, mViews.popupAnchor, true);
-                removeMarker();
-                mMap.getMapPosition(mMapPosition);
-                Configuration.setRememberedScale((float) mMapPosition.getScale());
-                return true;
-            }
-            case R.id.actionRememberTilt: {
-                removeMarker();
-                mMap.getMapPosition(mMapPosition);
-                mAutoTilt = mMapPosition.getTilt();
-                Configuration.setAutoTilt(mAutoTilt);
-                mAutoTiltSet = true;
-                mAutoTiltShouldSet = true;
-                return true;
-            }
-            default: {
-                Intent intent = item.getIntent();
-                if (intent != null) {
-                    startActivity(intent);
-                    return true;
-                }
             }
         }
         return false;
@@ -1794,6 +1785,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                     menu.findItem(R.id.actionHideSystemUI).setChecked(Configuration.getHideSystemUI());
                 } else {
                     menu.removeItem(R.id.actionHideSystemUI);
+                    menu.removeItem(R.id.actionImport);
                 }
                 if (Configuration.ratingActionPerformed() ||
                         (Configuration.getRunningTime() < 120 &&
@@ -1830,6 +1822,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
 
     private void onMapDownloadClicked() {
         mViews.mapDownloadButton.setVisibility(View.GONE);
+        mViews.mapDownloadButton.setTag(null);
         startMapSelection(false);
     }
 
@@ -1985,7 +1978,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         mObjectInteractionEnabled = enabled;
     }
 
-    private ServiceConnection mLocationConnection = new ServiceConnection() {
+    private final ServiceConnection mLocationConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
             logger.debug("onServiceConnected: LocationService");
             mLocationService = (ILocationService) binder;
@@ -2015,7 +2008,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         updateNavigationUI();
     }
 
-    private ServiceConnection mNavigationConnection = new ServiceConnection() {
+    private final ServiceConnection mNavigationConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
             logger.debug("onServiceConnected: NavigationService");
             mNavigationService = (INavigationService) binder;
@@ -2222,19 +2215,8 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                 HelperUtils.showTargetedAdvice(MainActivity.this, Configuration.ADVICE_LOCK_MAP_POSITION, R.string.advice_lock_map_position, mViews.popupAnchor, R.drawable.ic_volume_down);
             }
         }
-        if (mViews.mapDownloadButton.getVisibility() != View.GONE) {
-            if (mapPosition.zoomLevel < 8) {
-                mViews.mapDownloadButton.setVisibility(View.GONE);
-                mViews.mapDownloadButton.setTag(null);
-            } else if (e == Map.MOVE_EVENT) {
-                final Message m = Message.obtain(mMainHandler, () -> {
-                    mViews.mapDownloadButton.setVisibility(View.GONE);
-                    mViews.mapDownloadButton.setTag(null);
-                });
-                m.what = R.id.msgRemoveMapDownloadButton;
-                mMainHandler.sendMessageDelayed(m, 1000);
-            }
-        }
+        if (e != Map.FINISH_EVENT)
+            checkMissingData(mapPosition);
     }
 
     @Override
@@ -2498,7 +2480,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
             mMarkerLayer.setFocus(null);
     }
 
-    @SuppressLint("ClickableViewAccessibility")
+    @SuppressLint({"ClickableViewAccessibility", "UseCompatLoadingForDrawables"})
     @Override
     public void onWaypointDetails(Waypoint waypoint, boolean fromList) {
         Bundle args = new Bundle(3);
@@ -2710,6 +2692,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         onTrackDetails(track, false);
     }
 
+    @SuppressLint("UseCompatLoadingForDrawables")
     private void onTrackDetails(Track track, boolean current) {
         Fragment fragment = mFragmentManager.findFragmentByTag("trackInformation");
         if (fragment == null) {
@@ -2909,6 +2892,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         mMap.animator().animateTo(box);
     }
 
+    @SuppressLint("UseCompatLoadingForDrawables")
     @Override
     public void onRouteDetails(Route route) {
         Fragment fragment = mFragmentManager.findFragmentByTag("routeInformation");
@@ -2952,6 +2936,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
 
     }
 
+    @SuppressLint("UseCompatLoadingForDrawables")
     @Override
     public void onFeatureDetails(long id, boolean fromList) {
         Bundle args = new Bundle(3);
@@ -3136,7 +3121,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         } else {
             mMap.updateMap(true);
         }
-        int[] xy = (int[]) mViews.mapDownloadButton.getTag();
+        int[] xy = (int[]) mViews.mapDownloadButton.getTag(R.id.mapKey);
         if (xy != null)
             mNativeMapIndex.selectNativeMap(xy[0], xy[1], Index.ACTION.DOWNLOAD);
     }
@@ -3145,9 +3130,9 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
     public void onFinishMapManagement() {
         mMap.layers().remove(mMapCoverageLayer);
         mMapCoverageLayer.onDetach();
-        mMap.updateMap(true);
         mNativeMapIndex.clearSelections();
         mMapCoverageLayer = null;
+        mMap.updateMap(true);
     }
 
     @Override
@@ -3625,6 +3610,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         }
     }
 
+    @SuppressLint("UseCompatLoadingForDrawables")
     @Override
     public void onBackStackChanged() {
         logger.debug("onBackStackChanged()");
@@ -3670,39 +3656,56 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         }
     }
 
-    // Called by tile manager, so it's on separate thread - do not block and do not update UI
-    @Override
-    public void onDataMissing(final int x, final int y, byte zoom) {
-        // Do not check "intermediate" maps - TODO: Should we consider movement when locked to location?
-        if (mMap.animator().isActive())
+    private void hideDownloadButton() {
+        if (mViews.mapDownloadButton.getVisibility() == View.VISIBLE) {
+            mViews.mapDownloadButton.setVisibility(View.GONE);
+            mViews.mapDownloadButton.setTag(null);
+        }
+    }
+
+    public void checkMissingData(MapPosition mapPosition) {
+        if (MapTrekTileSource.MissingTileData.counter.get() == 0) {
+            hideDownloadButton();
             return;
+        }
 
         // Do not show button if we are already choosing maps
-        if (mMapCoverageLayer != null)
+        if (mMapCoverageLayer != null) {
+            hideDownloadButton();
             return;
-
-        // Do not show button if this map is already downloading
-        if (mNativeMapIndex.isDownloading(x, y))
-            return;
-
-        // Do not show button if there is no map for that area
-        if (mNativeMapIndex.hasDownloadSizes() && mNativeMapIndex.getNativeMap(x, y).downloadSize == 0L)
-            return;
+        }
 
         // Do not show button if custom map is shown
-        mMap.getMapPosition(mMapPosition);
         for (MapFile bitmapLayerMap : mBitmapLayerMaps)
-            if (bitmapLayerMap.contains(mMapPosition.getX(), mMapPosition.getY()))
+            if (bitmapLayerMap.contains(mapPosition.getX(), mapPosition.getY())) {
+                hideDownloadButton();
                 return;
-
-        runOnUiThread(() -> {
-            if (mViews.mapDownloadButton.getVisibility() == View.GONE) {
-                mViews.mapDownloadButton.setText(R.string.mapDownloadText);
-                mViews.mapDownloadButton.setVisibility(View.VISIBLE);
             }
-            mViews.mapDownloadButton.setTag(new int[]{x, y});
-            mMainHandler.removeMessages(R.id.msgRemoveMapDownloadButton);
-        });
+
+        float tileScale = 1f / (1 << mapPosition.zoomLevel);
+        int tileX = (int) (mapPosition.x / tileScale);
+        int tileY = (int) (mapPosition.y / tileScale);
+        String tag = tileX + "/" + tileY + "/" + mapPosition.zoomLevel;
+        if (!tag.equals(mViews.mapDownloadButton.getTag())) {
+            MapTile tile = mBaseLayer.getManager().getTile(tileX, tileY, mapPosition.zoomLevel);
+            if (tile != null) {
+                mViews.mapDownloadButton.setTag(tag);
+                int visibility = View.GONE;
+                int[] map = null;
+                MapTrekTileSource.MissingTileData tileData = (MapTrekTileSource.MissingTileData) tile.getData(MapTrekTileSource.TILE_DATA);
+                if (tileData != null) {
+                    int mapX = tile.tileX >> (tile.zoomLevel - 7);
+                    int mapY = tile.tileY >> (tile.zoomLevel - 7);
+                    if (!mNativeMapIndex.isDownloading(mapX, mapY) && // Do not show button if this map is already downloading
+                            !(mNativeMapIndex.hasDownloadSizes() && mNativeMapIndex.getNativeMap(mapX, mapY).downloadSize == 0L)) { // Do not show button if there is no map for that area
+                        visibility = View.VISIBLE;
+                        map = new int[]{mapX, mapY};
+                    }
+                }
+                mViews.mapDownloadButton.setVisibility(visibility);
+                mViews.mapDownloadButton.setTag(R.id.mapKey, map);
+            }
+        }
     }
 
     @Override
@@ -3718,7 +3721,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                 FrameLayout.MarginLayoutParams p = (FrameLayout.MarginLayoutParams) mViews.coordinatorLayout.getLayoutParams();
                 p.topMargin = mStatusBarHeight;
 
-                BottomSheetBehavior bottomSheetBehavior = BottomSheetBehavior.from(mViews.bottomSheetPanel);
+                BottomSheetBehavior<ContentFrameLayout> bottomSheetBehavior = BottomSheetBehavior.from(mViews.bottomSheetPanel);
 
                 if (mFragmentManager != null) {
                     if (mFragmentManager.getBackStackEntryCount() == 0 && bottomSheetBehavior.getState() == BottomSheetBehavior.STATE_HIDDEN) {
@@ -3814,13 +3817,24 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             // Should we show an explanation?
             if (shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)) {
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_FINE_LOCATION);
-                // Show an explanation to the user *asynchronously* -- don't block
-                // this thread waiting for the user's response! After the user
-                // sees the explanation, try again to request the permission.
-
+                String name;
+                try {
+                    PackageManager pm = getPackageManager();
+                    PermissionInfo permissionInfo = pm.getPermissionInfo(Manifest.permission.ACCESS_FINE_LOCATION, PackageManager.GET_META_DATA);
+                    name = permissionInfo.loadLabel(pm).toString().toLowerCase();
+                } catch (PackageManager.NameNotFoundException e) {
+                    logger.error("Failed to obtain name for permission", e);
+                    name = "access precise location";
+                }
+                new AlertDialog.Builder(this)
+                        .setTitle(R.string.titleLocationPermissionRationale)
+                        .setMessage(getString(R.string.msgAccessFineLocationRationale, name))
+                        .setPositiveButton(R.string.ok, (dialog, which) -> requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_FINE_LOCATION))
+                        .setNegativeButton(R.string.cancel, (dialog, which) -> dialog.cancel())
+                        .create()
+                        .show();
             } else {
-                requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_FINE_LOCATION);
+               requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_FINE_LOCATION);
             }
         } else {
             enableLocations();
@@ -3835,10 +3849,12 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                 // If request is cancelled, the result arrays are empty.
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     enableLocations();
-                    //} else {
-
-                    // permission denied, boo! Disable the
-                    // functionality that depends on this permission.
+                } else {
+                    HelperUtils.showError(getString(R.string.msgLocationPermissionError), R.string.actionGrant, view -> {
+                        Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_HISTORY | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+                        startActivity(intent);
+                    }, mViews.coordinatorLayout);
                 }
             }
         }
@@ -3876,7 +3892,7 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
 
     }
 
-    private BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver mBroadcastReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
@@ -4294,6 +4310,10 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                 boolean visible = Configuration.getZoomButtonsVisible();
                 mViews.coordinatorLayout.findViewById(R.id.mapZoomHolder).setVisibility(visible ? View.VISIBLE : View.GONE);
             }
+            case Configuration.PREF_ACCESSIBILITY_BADGES: {
+                Tags.accessibility = Configuration.getAccessibilityBadgesEnabled();
+                mMap.clearMap();
+            }
             case Configuration.PREF_MAP_HILLSHADES: {
                 boolean enabled = Configuration.getHillshadesEnabled();
                 if (enabled)
@@ -4352,9 +4372,18 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
         Tags.recalculateTypeZooms();
         ThemeFile themeFile;
         switch (Configuration.getActivity()) {
-            case 2:
+            case 3:
                 themeFile = Themes.WINTER;
                 Configuration.accountSkiing();
+                mNightMode = false;
+                break;
+            case 2:
+                if (Tags.kindZooms[13] == 18) {
+                    Tags.kindZooms[13] = 14;
+                    Tags.recalculateTypeZooms();
+                }
+                themeFile = Themes.MAPTREK;
+                Configuration.accountCycling();
                 mNightMode = false;
                 break;
             case 1:
@@ -4452,7 +4481,8 @@ public class MainActivity extends BasePluginActivity implements ILocationListene
                 mMapIndex.getMaps().size() + "," +
                 Configuration.getFullScreenTimes() + "," +
                 Configuration.getHikingTimes() + "," +
-                Configuration.getSkiingTimes();
+                Configuration.getSkiingTimes() + "," +
+                Configuration.getCyclingTimes();
     }
 
     private double movingAverage(double current, double previous) {

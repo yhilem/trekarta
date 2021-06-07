@@ -42,8 +42,12 @@
             android:id="@+id/mapDownloadButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="96dp"
             android:layout_gravity="center"
-            android:alpha="0.7"
+            android:alpha="0.8"
+            android:text="@string/mapDownloadText"
+            android:textColor="@color/colorPrimaryLight"
+            android:backgroundTint="@color/colorAccentLight"
             android:visibility="gone" />
 
         <mobi.maptrek.view.GaugePanel
@@ -131,7 +135,7 @@
                 android:padding="@dimen/gauge_padding"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_add_circle"
-                android:tint="@color/textColorPrimary" />
+                android:tint="?attr/zoomIconColor" />
 
             <ImageButton
                 android:id="@+id/zoomOut"
@@ -144,7 +148,7 @@
                 android:padding="@dimen/gauge_padding"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_remove_circle"
-                android:tint="@color/textColorPrimary" />
+                android:tint="?attr/zoomIconColor" />
         </LinearLayout>
 
         <RelativeLayout

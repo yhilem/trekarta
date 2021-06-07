@@ -267,7 +267,7 @@
                         <symbol src="assets:symbols/tourist/windmill.svg" symbol-color="color:man-made" symbol-percent="80" />
                     </m>
                 </m>
-                <m k="memorial">
+                <m k="memorial|artwork_type">
                     <m v="bust">
                         <symbol src="assets:symbols/tourist/bust.svg" symbol-color="color:memorials" symbol-percent="80" />
                     </m>
@@ -287,6 +287,12 @@
                     </m>
                     <m v="castle">
                         <symbol src="assets:symbols/tourist/castle.svg" symbol-color="color:memorials" symbol-percent="80" />
+                    </m>
+                    <m v="fort">
+                        <symbol src="assets:symbols/tourist/fort.svg" symbol-color="color:memorials" symbol-percent="80" />
+                    </m>
+                    <m v="city_gate">
+                        <symbol src="assets:symbols/tourist/city_gate.svg" symbol-color="color:memorials" symbol-percent="80" />
                     </m>
                     <m v="monument">
                         <symbol src="assets:symbols/tourist/monument.svg" symbol-color="color:memorials" symbol-percent="80" />
@@ -340,6 +346,9 @@
                 <m v="car">
                     <symbol src="assets:symbols/shopping/car.svg" symbol-color="color:shop" symbol-percent="80" />
                 </m>
+                <m v="car_parts">
+                    <symbol src="assets:symbols/shopping/car_parts.svg" symbol-color="color:shop" symbol-percent="80" />
+                </m>
                 <m v="car_repair">
                     <symbol src="assets:symbols/shopping/car_repair.svg" symbol-color="color:amenity-brown" symbol-percent="80" />
                 </m>
@@ -352,18 +361,19 @@
                 <m v="fuel">
                     <symbol src="assets:symbols/transport/fuel.svg" symbol-color="color:transportation" symbol-percent="80" />
                 </m>
+                <m v="charging_station">
+                    <symbol src="assets:symbols/transport/charging_station.svg" symbol-color="color:transportation" symbol-percent="80" />
+                    <m  zoom-min="16">
+                        <text dy="-12" caption="true" fill="color:transportation" k="capacity" size="10" stroke="color:text-outline" stroke-width="2.0" />
+                    </m>
+                </m>
                 <m v="slipway">
                     <symbol src="assets:symbols/amenity/slipway.svg" symbol-color="color:transportation" symbol-percent="80" />
                 </m>
                 <m v="parking">
                     <m select="first">
-                        <m k="fee">
-                            <m k="fee" v="-|no">
-                                <symbol src="assets:symbols/transport/parking_car_paid.svg" symbol-color="color:transportation" symbol-percent="70" />
-                            </m>
-                        </m>
                         <m k="access" v="private">
-                            <symbol src="assets:symbols/transport/parking_private.svg" symbol-color="color:transportation" symbol-percent="50" />
+                            <symbol src="assets:symbols/transport/parking_private.svg" symbol-percent="50" />
                         </m>
                         <m>
                             <symbol src="assets:symbols/transport/parking.svg" symbol-color="color:transportation" symbol-percent="50" />
@@ -417,6 +427,9 @@
                 <m v="ranger_station">
                     <symbol src="assets:symbols/tourist/ranger_station.svg" symbol-color="color:public-service" symbol-percent="80" />
                 </m>
+                <m v="hunting_stand">
+                    <symbol src="assets:symbols/tourist/hunting_stand.svg" symbol-color="color:man-made" symbol-percent="60" />
+                </m>
                 <m v="bicycle_rental">
                     <symbol src="assets:symbols/transport/rental_bicycle.svg" symbol-color="color:transportation" symbol-percent="80" />
                 </m>
@@ -424,9 +437,9 @@
                     <symbol src="assets:symbols/transport/bicycle_repair_station.svg" symbol-color="color:amenity-brown" symbol-percent="80" />
                 </m>
                 <m v="bicycle_parking">
-                    <symbol src="assets:symbols/transport/bicycle_parking.svg" symbol-color="color:transportation" symbol-percent="80" />
+                    <symbol merge-gap="0" src="assets:symbols/transport/bicycle_parking.svg" symbol-color="color:transportation" symbol-percent="60" />
                     <m  zoom-min="16">
-                        <text dy="-12" caption="true" fill="color:transportation" k="capacity" priority="200" size="12" stroke="#ffffff" stroke-width="2.0" />
+                        <text dy="-10" caption="true" fill="color:transportation" k="capacity" size="10" stroke="color:text-outline" stroke-width="2.0" />
                     </m>
                 </m>
                 <m v="drinking_water">

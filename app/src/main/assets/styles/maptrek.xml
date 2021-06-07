@@ -55,7 +55,6 @@
             <cat id="aeroways" />
             <cat id="aerialways" />
             <cat id="pedestrian" />
-            <cat id="cycling" />
             <cat id="forest" />
             <cat id="grass" />
             <cat id="insignificant-water" />
@@ -106,6 +105,7 @@
     <style-color id="pedestrian" color="#e0e0e0" />
     <style-color id="highway-service" color="#f5f5f5" />
     <style-color id="highway-services" color="#fee4be" />
+    <style-color id="cycleway" color="#4040ee" />
 
     <style-color id="tunnel" color="#f3f3f3" />
     <style-color id="highway-tunnel" color="#fdcf8c" />
@@ -115,7 +115,7 @@
     <style-color id="highway-service-tunnel" color="#e5e5e5" />
     <style-color id="pedestrian-tunnel" color="#d8d8d8" />
 
-    <style-color id="path-access-no" color="#c8c3ac" />
+    <style-color id="path-access-no" color="#999999" />
     <style-color id="access-no" color="#ffdddd" />
     <style-color id="access-private" color="#eeeeee" />
     <style-color id="service-access-private" color="#e0e0e0" />
@@ -150,6 +150,7 @@
     <style-color id="dam-fill" color="#999999" />
 
     <style-color id="cliff" color="#888888" />
+    <style-color id="cliff-darker" color="#666666" />
     <style-color id="natural-text" color="#2d2d2d" />
 
     <style-color id="pier-stroke" color="#d0d0d0" />
@@ -164,8 +165,7 @@
     <style-area fill="color:land" id="land" mesh="true" />
 
     <!-- Water -->
-    <style-text style="italic" fill="#486780" id="water" size="16" stroke="#dce4eb"
-        stroke-width="1.4" />
+    <style-text style="italic" fill="#486780" id="water" size="16" stroke="#dce4eb" stroke-width="1.4" />
     <style-symbol id="oneway-water" src="assets:symbols/oneway_river.svg" symbol-percent="50"
         rotate="true" repeat="true" repeat-gap="100" />
     <style-line id="water" stroke="color:water" use="fix" />
@@ -177,6 +177,7 @@
     <style-area fill="color:water" id="water" mesh="true" />
 
     <!-- Natural -->
+    <style-text id="mountain" style="italic" fill="color:cliff-darker" size="16" stroke="#ffffff" stroke-width="1.6" />
     <style-line id="trees" stroke="color:trees" width="0.8" fade="15" />
     <style-area blend="11" blend-fill="color:trees" fade="8" fill="#b3d095" id="wood" />
     <style-area fade="12" fill="#c9dc91" id="greens" /> <!-- meadow|garden -->
@@ -229,7 +230,9 @@
     <style-symbol id="oneway" repeat="true" repeat-gap="100" repeat-start="30"
         rotate="true" src="assets:symbols/oneway.svg" symbol-percent="60" />
     <style-symbol id="oneway-bicycle" repeat="true" repeat-gap="80" repeat-start="20"
-        rotate="true" src="assets:symbols/oneway_bicycle.svg" symbol-percent="60" />
+        rotate="true" src="assets:symbols/oneway_bicycle.svg" symbol-percent="80" />
+    <style-symbol id="doubleway-bicycle" repeat="true" repeat-gap="80" repeat-start="20"
+        rotate="true" src="assets:symbols/doubleway_bicycle.svg" symbol-percent="160" />
     <xi:include href="inc_highway_styles.xml" />
 
     <!-- Protected areas -->
@@ -457,6 +460,61 @@
             </m>
             <text area-size="0.05" caption="true" use="water" />
         </m>
+    </m>
+
+    <!-- Landuse -->
+    <m closed="yes" e="way" k="landuse">
+        <m cat="urban" v="cemetery" zoom-min="11">
+            <area src="assets:patterns/cemetery.svg" />
+            <m zoom-min="14">
+                <line use="park" />
+                <text style="bold_italic" area-size="0.1" caption="true" fill="#777777"
+                    priority="800" size="16" stroke="#f6f6f6" stroke-width="2.0" />
+            </m>
+        </m>
+    </m>
+    <m k="aeroway">
+        <m cat="aeroways" closed="yes" v="apron">
+            <area fill="#f0f0f0" />
+        </m>
+        <m cat="aeroways" closed="yes" v="terminal|hangar">
+            <area use="building" />
+            <text use="house-name" />
+        </m>
+        <m cat="aeroways" closed="no" v="runway">
+            <line use="aeroway:runway" />
+            <m zoom-min="13">
+                <text fill="#444444" k="ref" size="14" stroke="#eeeeee" stroke-width="2.0" />
+            </m>
+        </m>
+        <m cat="aeroways" closed="no" v="taxiway">
+            <line use="aeroway:runway" width="-1.0" />
+            <m zoom-min="15">
+                <text fill="#444444" k="ref" size="10" stroke="#eeeeee" stroke-width="2.0" />
+            </m>
+        </m>
+        <m cat="aeroways" closed="yes" v="runway|taxiway">
+            <area use="aeroway:runway" />
+            <text caption="true" fill="#444444" k="ref" size="14" stroke="#eeeeee"
+                stroke-width="2.0" />
+        </m>
+    </m>
+
+    <m cat="mountains" e="way" k="natural" v="ridge">
+        <line src="assets:patterns/ridge.svg" symbol-color="color:cliff-darker" />
+        <text use="mountain" />
+    </m>
+    <m cat="mountains" e="way" k="natural" v="arete">
+        <line src="assets:patterns/arete.svg" symbol-color="color:cliff-darker" />
+        <text use="mountain" />
+    </m>
+
+    <!-- THIS IS A DANGEROUS HACK as Android does not support xi:include! It assumes a lot of
+    prerequisites how includes are formatted, see Themes class for details -->
+    <xi:include href="inc_water.xml" />
+
+    <!-- Wetlands -->
+    <m closed="yes" e="way" k="natural">
         <m cat="nature" v="wetland">
             <m k="wetland">
                 <m v="marsh|wet_meadow">
@@ -538,51 +596,6 @@
             <text area-size="0.05" caption="true" use="water" />
         </m>
     </m>
-    <m cat="nature" k="man_made" v="cutline">
-        <line cap="butt" fade="14" stroke="#d3dcb9" width="2.0" />
-    </m>
-
-    <!-- Landuse -->
-    <m closed="yes" e="way" k="landuse">
-        <m cat="urban" v="cemetery" zoom-min="11">
-            <area src="assets:patterns/cemetery.svg" />
-            <m zoom-min="14">
-                <line use="park" />
-                <text style="bold_italic" area-size="0.1" caption="true" fill="#777777"
-                    priority="800" size="16" stroke="#f6f6f6" stroke-width="2.0" />
-            </m>
-        </m>
-    </m>
-    <m k="aeroway">
-        <m cat="aeroways" closed="yes" v="apron">
-            <area fill="#f0f0f0" />
-        </m>
-        <m cat="aeroways" closed="yes" v="terminal|hangar">
-            <area use="building" />
-            <text use="house-name" />
-        </m>
-        <m cat="aeroways" closed="no" v="runway">
-            <line use="aeroway:runway" />
-            <m zoom-min="13">
-                <text fill="#444444" k="ref" size="14" stroke="#eeeeee" stroke-width="2.0" />
-            </m>
-        </m>
-        <m cat="aeroways" closed="no" v="taxiway">
-            <line use="aeroway:runway" width="-1.0" />
-            <m zoom-min="15">
-                <text fill="#444444" k="ref" size="10" stroke="#eeeeee" stroke-width="2.0" />
-            </m>
-        </m>
-        <m cat="aeroways" closed="yes" v="runway|taxiway">
-            <area use="aeroway:runway" />
-            <text caption="true" fill="#444444" k="ref" size="14" stroke="#eeeeee"
-                stroke-width="2.0" />
-        </m>
-    </m>
-
-    <!-- THIS IS A DANGEROUS HACK as Android does not support xi:include! It assumes a lot of
-    prerequisites how includes are formatted, see Themes class for details -->
-    <xi:include href="inc_water.xml" />
 
     <m cat="forest" k="natural" v="tree_row" zoom-min="15">
         <line use="trees" />
@@ -597,9 +610,23 @@
 
     <xi:include href="inc_hiking_routes.xml" />
 
+    <xi:include href="inc_hiking_ways.xml" />
+
+    <xi:include href="inc_cycling_routes.xml" />
+
+    <xi:include href="inc_cycling_ways.xml" />
+
     <xi:include href="inc_highways.xml" />
 
     <xi:include href="inc_railways.xml" />
+
+    <xi:include href="inc_hiking_routes.xml" />
+
+    <xi:include href="inc_hiking_symbols.xml" />
+
+    <xi:include href="inc_cycling_routes.xml" />
+
+    <xi:include href="inc_cycling_symbols.xml" />
 
     <!-- Topological (orientational) lines on ground -->
     <m cat="topo" k="man_made">
